@@ -3,7 +3,7 @@ import { getStore } from "@netlify/blobs";
 import webpush from "web-push";
 
 export const TZ = "Europe/Rome";
-export const SALTI_PER_PENITENZA = 3;
+export const SALTI_PER_PENITENZA = 2;
 
 export const PENITENZE = [
   "Niente dolci per 3 giorni",
