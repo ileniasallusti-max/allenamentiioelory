@@ -49,80 +49,111 @@ export const start = (user) => (user.sched && user.sched.length ? user.sched[0].
 export const posted = (st, d, u) => !!(st.posts[d] && st.posts[d][u]);
 
 export async function load() { return (await store().get("state", { type: "json" })) || null; }
-export async function save(st) { await store().setJSON("state", st); }
+export async function save(st) { const { _pending, ...rest } = st; await store().setJSON("state", rest); }
 
 export function hash(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return Math.abs(h); }
 
+export const weekStart = (s) => addDays(s, -wd(s));
+export const weekEnd = (s) => addDays(weekStart(s), 6);
+const listOf = (st) => (st.list && st.list.length ? st.list : PENITENZE);
+
+// allenamenti saltati recuperati con una foto in un giorno di riposo della stessa settimana
+export function recovered(st, u) {
+  const user = st.users[u], s0 = start(user), t = today(), rec = new Set();
+  if (!s0) return rec;
+  let queue = [], wk = null;
+  for (let d = s0; d <= t; d = addDays(d, 1)) {
+    const w = weekStart(d);
+    if (w !== wk) { wk = w; queue = []; }
+    const tr = isTraining(user, d), p = posted(st, d, u);
+    if (tr) { if (!p && d < t) queue.push(d); }
+    else if (p && queue.length) rec.add(queue.shift());
+  }
+  return rec;
+}
+
 export function streak(st, u) {
-  const user = st.users[u], s0 = start(user), t = today();
+  const user = st.users[u], s0 = start(user), t = today(), rec = recovered(st, u);
   let run = 0, best = 0;
   if (!s0) return { cur: 0, best: 0 };
   for (let d = s0; d <= t; d = addDays(d, 1)) {
     if (!isTraining(user, d)) continue;
-    if (posted(st, d, u)) { run++; best = Math.max(best, run); }
+    if (posted(st, d, u) || rec.has(d)) { run++; best = Math.max(best, run); }
     else if (d < t) run = 0;
   }
   return { cur: run, best };
 }
 
+// analizza i salti: crea le penitenze scadute e restituisce gli avvisi ancora recuperabili
 export function computePenalties(st) {
-  const t = today(); st.penalties = st.penalties || []; const created = [];
+  const t = today(), tw = weekStart(t); st.penalties = st.penalties || []; const created = [], pending = [];
   for (const u of ["a", "b"]) {
     const user = st.users[u], s0 = start(user);
     if (!s0) continue;
-    let run = 0;
+    const rec = recovered(st, u);
+    let run = [];
     for (let d = s0; d < t; d = addDays(d, 1)) {
       if (!isTraining(user, d)) continue;
-      if (posted(st, d, u)) { run = 0; continue; }
-      run++;
-      if (run === SALTI_PER_PENITENZA) {
-        run = 0;
-        const id = u + "_" + d;
+      if (posted(st, d, u)) { run = []; continue; }
+      run.push(d);
+      if (run.length === SALTI_PER_PENITENZA) {
+        const group = run; run = [];
+        const open = group.filter((x) => !rec.has(x));
+        if (!open.length) continue; // recuperati tutti
+        const stillTime = open.every((x) => weekStart(x) === tw);
+        const id = u + "_" + group[group.length - 1];
+        if (stillTime) { pending.push({ id, user: u, left: open.length, deadline: weekEnd(t), days: group }); continue; }
         if (!st.penalties.find((p) => p.id === id)) {
-          const p = { id, user: u, date: d, text: (st.list && st.list.length ? st.list : PENITENZE)[hash(id) % (st.list && st.list.length ? st.list : PENITENZE).length], done: false, notified: false };
+          const L = listOf(st);
+          const p = { id, user: u, date: group[group.length - 1], text: L[hash(id) % L.length], done: false, notified: false };
           st.penalties.push(p); created.push(p);
         }
       }
     }
   }
+  st._pending = pending;
   return created;
 }
 
-function status(st, u, d, t) {
+function status(st, u, d, t, rec) {
   const user = st.users[u], s0 = start(user);
   if (!s0 || d < s0) return "none";
   const tr = isTraining(user, d), dn = posted(st, d, u);
   if (d > t) return tr ? "future" : "rest";
   if (dn) return "done";
   if (d === t) return tr ? "todo" : "rest";
+  if (tr && rec.has(d)) return "rec";
   return tr ? "miss" : "rest";
 }
 
 export function publicState(st) {
   const t = today(), users = {};
+  computePenalties(st);
   for (const u of ["a", "b"]) {
-    const user = st.users[u], s0 = start(user), sk = streak(st, u);
+    const user = st.users[u], s0 = start(user), sk = streak(st, u), rec = recovered(st, u);
     const mon = addDays(t, -wd(t) - 21), grid = [];
-    for (let i = 0; i < 28; i++) { const d = addDays(mon, i); grid.push({ d, s: status(st, u, d, t) }); }
+    for (let i = 0; i < 28; i++) { const d = addDays(mon, i); grid.push({ d, s: status(st, u, d, t, rec) }); }
     let sch = 0, dn = 0;
     for (let d = t.slice(0, 8) + "01"; d <= t; d = addDays(d, 1)) {
       if (!s0 || d < s0 || !isTraining(user, d)) continue;
-      const done = posted(st, d, u);
+      const done = posted(st, d, u) || rec.has(d);
       if (d < t || done) { sch++; if (done) dn++; }
     }
+    const pend = st._pending.filter((p) => p.user === u);
     users[u] = {
       name: user.name,
       days: user.sched.length ? user.sched[user.sched.length - 1].days : null,
       todayTraining: isTraining(user, t),
       streak: sk.cur, best: sk.best,
       month: sch ? Math.round((dn / sch) * 100) : null,
+      debt: pend.length ? { left: pend.reduce((s, p) => s + p.left, 0), deadline: pend[0].deadline } : null,
       grid
     };
   }
   const album = Object.keys(st.posts).filter((d) => d <= t).sort().reverse().slice(0, 90).map((d) => ({ d, p: st.posts[d] }));
   const open = st.penalties.filter((p) => !p.done);
   const done = st.penalties.filter((p) => p.done).slice(-10).reverse();
-  return { created: true, today: t, users, album, penalties: { open, done }, list: st.list && st.list.length ? st.list : PENITENZE, rule: SALTI_PER_PENITENZA };
+  return { created: true, today: t, users, album, penalties: { open, done }, list: listOf(st), rule: SALTI_PER_PENITENZA };
 }
 
 export async function ensureVapid(st) {

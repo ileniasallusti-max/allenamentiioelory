@@ -94,6 +94,10 @@ input:focus{border-color:var(--acc)}
 .g i.miss::after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:var(--red)}
 .g i.todo{background:transparent;box-shadow:inset 0 0 0 2px var(--acc)}
 .g i.rest{background:#18181A}
+.g i.rec{background:rgba(198,255,61,.32)}
+.warn{background:rgba(255,184,0,.10);border:1px solid rgba(255,184,0,.4);border-radius:24px;padding:18px;margin-bottom:10px}
+.warn .lbl{color:#FFB800}
+.warn p{font-size:17px;font-weight:800;margin:8px 0 6px;letter-spacing:-.01em}
 .g i.future{background:transparent;box-shadow:inset 0 0 0 1.5px var(--line)}
 .g i.none{background:transparent}
 .legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:16px;font-size:12px;color:var(--mute);font-weight:700}
@@ -232,7 +236,7 @@ function screenDays(first){
   const html=`
   ${first?"":'<div class="grab"></div>'}
   <div class="lbl">${first?"Ultimo passo":"I tuoi giorni"}</div><h1 style="margin:6px 0 10px">In che giorni ti alleni?</h1>
-  <p class="small" style="margin-bottom:22px">Segna i giorni in cui ti impegni ad allenarti. Contano solo questi: negli altri sei a riposo e lo streak non si rompe.${first?"":" <b style='color:var(--ink)'>Le modifiche valgono da domani.</b>"}</p>
+  <p class="small" style="margin-bottom:22px">Segna i giorni in cui ti impegni ad allenarti. Contano solo questi: negli altri sei a riposo e lo streak non si rompe. Se ne salti 2 di fila, puoi recuperarli entro domenica.${first?"":" <b style='color:var(--ink)'>Le modifiche valgono da domani.</b>"}</p>
   ${daysPicker(cur)}
   <button class="btn acc" id="go" style="margin-top:24px">Salva i miei giorni</button><div class="err" id="err"></div>`;
   if(first){ app.innerHTML=html; } else { openSheet(html); }
@@ -265,18 +269,26 @@ function render(){
          <ol class="steps"><li><b>1</b>Fai il tuo allenamento</li><li><b>2</b>Scatta una foto mentre ti alleni o appena hai finito</li><li><b>3</b>Caricala qui entro mezzanotte</li></ol>
          <button class="btn acc" onclick="pick()">📸 Scatta o carica la foto</button>
          <div class="small">Si apre la fotocamera o la galleria.${otPosted?` La foto di ${esc(U[ot].name)} si sblocca quando carichi la tua.`:""}</div></div>`
-      : `<div class="hero"><div class="lbl">Oggi sei a riposo</div><h3>Niente obblighi oggi 😌</h3><button class="btn dark" onclick="pick()">📸 Carica una foto bonus</button></div>`;
+      : (U[me].debt
+        ? `<div class="hero"><div class="lbl">Giorno di recupero</div><h3>Recupera un allenamento 💪</h3><p class="small" style="margin:-6px 0 18px">Oggi sei a riposo, ma se ti alleni e carichi la foto recuperi uno degli allenamenti saltati.</p><button class="btn acc" onclick="pick()">📸 Scatta o carica la foto</button></div>`
+        : `<div class="hero"><div class="lbl">Oggi sei a riposo</div><h3>Niente obblighi oggi 😌</h3><p class="small" style="margin:-6px 0 18px">Se ti alleni lo stesso, la foto può servire a recuperare un allenamento saltato in settimana.</p><button class="btn dark" onclick="pick()">📸 Carica una foto bonus</button></div>`);
   }
   const myTile=myPosted
     ? `<div class="pic" onclick="zoom('${photoUrl(t,me,todayPosts[me].time)}')"><img src="${photoUrl(t,me,todayPosts[me].time)}" alt=""><span class="tag">Tu</span><button class="change" onclick="event.stopPropagation();pick()">Cambia</button><span class="time">${hhmm(todayPosts[me].time)}</span></div>`
     : `<div class="pic empty"><span class="tag">Tu</span><div class="ph">La tua foto<br>apparirà qui</div></div>`;
   let otTile;
-  if(otPosted&&myPosted) otTile=`<div class="pic" onclick="zoom('${photoUrl(t,ot,todayPosts[ot].time)}')"><img src="${photoUrl(t,ot,todayPosts[ot].time)}" alt=""><span class="tag">${esc(U[ot].name)}</span><span class="time">${hhmm(todayPosts[ot].time)}</span></div>`;
+  const canSee=myPosted||!U[me].todayTraining;
+  if(otPosted&&canSee) otTile=`<div class="pic" onclick="zoom('${photoUrl(t,ot,todayPosts[ot].time)}')"><img src="${photoUrl(t,ot,todayPosts[ot].time)}" alt=""><span class="tag">${esc(U[ot].name)}</span><span class="time">${hhmm(todayPosts[ot].time)}</span></div>`;
   else if(otPosted) otTile=`<div class="pic"><img class="blur" src="${photoUrl(t,ot,todayPosts[ot].time)}" alt=""><span class="tag">${esc(U[ot].name)}</span><div class="lock"><em>🔒</em>Carica la tua<br>per vederla</div></div>`;
   else otTile=`<div class="pic empty"><span class="tag">${esc(U[ot].name)}</span><div class="ph">${U[ot].todayTraining?"Non ancora…":"Oggi riposa"}</div></div>`;
 
-  const pens=S.penalties.open.map(p=>`<div class="pen"><div class="lbl">🚨 Penitenza · ${esc(U[p.user].name)}</div><p>${esc(p.text)}</p><div class="small">${S.rule} allenamenti saltati di fila, fino al ${fmt(p.date,{day:"numeric",month:"long"})}</div>${p.user!==me?`<button onclick="penDone('${p.id}')">Segna come fatta ✓</button>`:""}</div>`).join("");
+  const pens=S.penalties.open.map(p=>`<div class="pen"><div class="lbl">🚨 Penitenza · ${esc(U[p.user].name)}</div><p>${esc(p.text)}</p><div class="small">${S.rule} allenamenti saltati di fila e non recuperati (fino al ${fmt(p.date,{day:"numeric",month:"long"})})</div>${p.user!==me?`<button onclick="penDone('${p.id}')">Segna come fatta ✓</button>`:""}</div>`).join("");
 
+  const dl=d=>fmt(d,{weekday:"long",day:"numeric",month:"long"});
+  const nAll=k=>k===1?"1 allenamento":k+" allenamenti";
+  const warns=[me,ot].filter(u=>U[u].debt).map(u=>{const x=U[u];return u===me
+    ? `<div class="warn"><div class="lbl">⚠️ Attenzione</div><p>Hai saltato ${S.rule} allenamenti di fila</p><div class="small">Recupera ${nAll(x.debt.left)} entro ${dl(x.debt.deadline)}: allenati in un giorno di riposo e carica la foto. Altrimenti scatta la penitenza 😈</div></div>`
+    : `<div class="warn"><div class="lbl">⚠️ ${esc(x.name)}</div><p>Ha saltato ${S.rule} allenamenti di fila</p><div class="small">Deve recuperarne ${x.debt.left} entro ${dl(x.debt.deadline)}, poi scatta la penitenza 😈</div></div>`}).join("");
   const myDays=`<div class="days">${WD.map((d,i)=>`<span class="${(U[me].days||[]).includes(i)?"on":""} ${i===w?"now":""}">${d}</span>`).join("")}</div>`;
 
   const track=u=>{const x=U[u];return `<div class="track"><div class="head"><b>${esc(x.name)}</b><span>${x.month===null?"questo mese: –":"questo mese: "+x.month+"%"}</span></div><div class="g">${WD.map(d=>`<span class="wd">${d}</span>`).join("")}${x.grid.map(c=>`<i class="${c.s}"></i>`).join("")}</div></div>`};
@@ -298,11 +310,11 @@ function render(){
   ${notice}
   <div class="block streaks">${skCard(me)}${skCard(ot)}</div>
   <div class="block"><div class="row"><h2>Oggi</h2></div>${hero}<div class="pics" style="${hero?"margin-top:10px":""}">${myTile}${otTile}</div></div>
-  ${pens?`<div class="block">${pens}</div>`:""}
+  ${warns||pens?`<div class="block">${warns}${pens}</div>`:""}
   <div class="block"><div class="row"><h2>I miei giorni di allenamento</h2><button class="link" onclick="screenDays(false)">Modifica</button></div>
     <div class="card">${myDays}<p class="small" style="margin-top:12px">Contano solo questi giorni. Negli altri sei a riposo e lo streak non si rompe.</p><p class="small" style="margin-top:6px">${esc(U[ot].name)}: ${daysText(U[ot].days)}</p></div></div>
   <div class="block"><div class="row"><h2>Costanza</h2></div><div class="card">${track(me)}${track(ot)}
-    <div class="legend"><span><i style="background:var(--acc)"></i>fatto</span><span><i style="box-shadow:inset 0 0 0 2px rgba(255,90,78,.6)"></i>saltato</span><span><i style="background:#18181A;box-shadow:inset 0 0 0 1px var(--line)"></i>riposo</span></div></div></div>
+    <div class="legend"><span><i style="background:var(--acc)"></i>fatto</span><span><i style="box-shadow:inset 0 0 0 2px rgba(255,90,78,.6)"></i>saltato</span><span><i style="background:rgba(198,255,61,.32)"></i>recuperato</span><span><i style="background:#18181A;box-shadow:inset 0 0 0 1px var(--line)"></i>riposo</span></div></div></div>
   <div class="block"><details class="arch" id="arch" ${archOpen?"open":""}><summary><div><h2>Archivio foto</h2><div class="small">${past.length?past.length+(past.length===1?" giorno":" giorni"):"Ancora vuoto"}</div></div><span class="ch">⌄</span></summary><div class="body">${album||'<p class="small">Qui troverete le vostre foto dei giorni passati.</p>'}</div></details></div>`;
 }
 
@@ -366,13 +378,14 @@ function settings(){
    <div class="sec"><div class="lbl" style="margin-bottom:10px">Notifiche</div>
      <button class="btn acc" onclick="enableNotif()">🔔 Attiva le notifiche</button>
      <p class="small" style="margin-top:10px">Nei tuoi giorni di allenamento, finché non carichi la foto: 5 promemoria la mattina, 5 il pomeriggio e 5 la sera.</p></div>
-   <div class="sec"><div class="lbl" style="margin-bottom:6px">La regola</div><p style="font-weight:700">${S.rule} allenamenti saltati di fila = una penitenza estratta a sorte. La segna come fatta l'altra persona.</p></div>
+   <div class="sec"><div class="lbl" style="margin-bottom:6px">La regola</div><p style="font-weight:700">${S.rule} allenamenti saltati di fila = penitenza estratta a sorte. Puoi evitarla recuperandoli entro domenica: allenati in un giorno di riposo e carica la foto. La penitenza la segna come fatta l'altra persona.</p></div>
    <div class="sec"><div class="lbl" style="margin-bottom:4px">Le penitenze</div><p class="small" style="margin-bottom:6px">Togliete o aggiungete quelle che volete. Valgono per tutti e due.</p><div id="penbox"></div></div>
    ${S.penalties.done.length?`<div class="sec"><div class="lbl">Penitenze saldate</div><ul class="list">${S.penalties.done.map(p=>`<li><span>${esc(S.users[p.user].name)}: ${esc(p.text)}</span></li>`).join("")}</ul></div>`:""}
    <button class="btn dark" onclick="if(confirm('Vuoi uscire da questo telefono?')){saveAuth(null);location.reload()}">Esci</button>`);
   penList();
 }
 
+setInterval(()=>{ if(document.visibilityState==="visible"&&auth&&auth.me&&S&&!busy&&!$("#sheet")) api("state").then(s=>{S=s;render()}).catch(()=>{}); },45000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&auth&&auth.me&&!busy&&!$("#sheet")) api("state").then(s=>{S=s;render()}).catch(()=>{}); });
 boot();
 </script>

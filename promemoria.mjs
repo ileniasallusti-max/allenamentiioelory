@@ -36,11 +36,29 @@ export default async () => {
     }
   }
 
+  // avviso: 2 allenamenti saltati, ma c'è tempo per recuperare entro domenica
+  const warned = st.warned || [];
+  const newWarn = (st._pending || []).filter((w) => !warned.includes(w.id));
+  for (const w of newWarn) {
+    const n = st.users[w.user].name;
+    dead[w.user].push(...await push(st, w.user, { title: "⚠️ Hai saltato " + SALTI_PER_PENITENZA + " allenamenti di fila", body: "Recuperali entro domenica allenandoti in un giorno di riposo, o scatta la penitenza 😈" }));
+    const o = other(w.user);
+    dead[o].push(...await push(st, o, { title: `⚠️ ${n} ha saltato ${SALTI_PER_PENITENZA} allenamenti`, body: "Ha tempo fino a domenica per recuperarli, poi penitenza 😈" }));
+  }
+
   // promemoria foto
   if (SLOT[h] !== undefined) {
     for (const u of ["a", "b"]) {
       const user = st.users[u];
-      if (!isTraining(user, t) || posted(st, t, u)) continue;
+      const debt = (st._pending || []).filter((w) => w.user === u).reduce((s, w) => s + w.left, 0);
+      if (!isTraining(user, t)) {
+        // giorno di riposo con allenamenti da recuperare: 3 promemoria
+        if (debt && !posted(st, t, u) && [2, 7, 12].includes(SLOT[h])) {
+          dead[u].push(...await push(st, u, { title: "Allenamenti", body: `Oggi puoi recuperare 💪 Ti ${debt === 1 ? "manca 1 allenamento" : "mancano " + debt + " allenamenti"} entro domenica, o scatta la penitenza` }));
+        }
+        continue;
+      }
+      if (posted(st, t, u)) continue;
       const o = other(u);
       let body = MSG[SLOT[h]];
       if (posted(st, t, o) && SLOT[h] % 3 === 1) body = "{p} ha già caricato la sua foto 👀 Tocca a te";
@@ -55,6 +73,7 @@ export default async () => {
   computePenalties(fresh);
   for (const p of fresh.penalties) if (news.find((n) => n.id === p.id)) p.notified = true;
   for (const u of ["a", "b"]) fresh.subs[u] = (fresh.subs[u] || []).filter((s) => !dead[u].includes(s.endpoint));
+  fresh.warned = [...new Set([...(fresh.warned || []), ...newWarn.map((w) => w.id)])].slice(-100);
   await save(fresh);
 };
 
